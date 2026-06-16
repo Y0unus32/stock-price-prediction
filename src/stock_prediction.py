@@ -19,12 +19,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-try:
-    import streamlit as st
-    STREAMLIT_AVAILABLE = True
-except ImportError:
-    STREAMLIT_AVAILABLE = False
-
 
 OUTPUT_DIR = Path("outputs")
 
@@ -164,15 +158,6 @@ def plot_predictions(predictions: pd.DataFrame, output_path: Path) -> None:
     plt.close()
 
 
-# Add Streamlit caching if available
-if STREAMLIT_AVAILABLE:
-    train_and_predict_base = st.cache_data(ttl=3600)  # Cache for 1 hour
-else:
-    def train_and_predict_base(func):
-        return func
-
-
-@train_and_predict_base
 def train_and_predict(ticker: str, start: str, end: str | None = None, output_dir: Path = OUTPUT_DIR) -> TrainResult:
     """Train ML models and generate predictions with caching."""
     output_dir.mkdir(parents=True, exist_ok=True)

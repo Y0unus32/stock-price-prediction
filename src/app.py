@@ -11,6 +11,13 @@ from stock_prediction import train_and_predict, get_stock_info, calculate_techni
 
 st.set_page_config(page_title="Stock Price Prediction", layout="wide")
 
+
+# Cache the prediction function to avoid retraining on reruns
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_prediction(ticker: str, start: str, end: str):
+    return train_and_predict(ticker=ticker, start=start, end=end)
+
+
 st.title("📈 Stock Price Prediction")
 st.markdown("Predict next trading day's stock price using Machine Learning models")
 
@@ -35,7 +42,7 @@ if run_button:
     else:
         try:
             with st.spinner("⏳ Downloading data, training models, and preparing predictions..."):
-                result = train_and_predict(
+                result = get_prediction(
                     ticker=ticker,
                     start=start_date.isoformat(),
                     end=end_date.isoformat(),
