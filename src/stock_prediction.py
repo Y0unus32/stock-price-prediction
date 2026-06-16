@@ -19,6 +19,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
+
 
 OUTPUT_DIR = Path("outputs")
 
@@ -33,16 +39,35 @@ class TrainResult:
 
 
 def download_stock_data(ticker: str, start: str, end: str | None = None) -> pd.DataFrame:
-    data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
-    if data.empty:
-        raise ValueError(f"No data found for ticker '{ticker}'. Check the symbol and date range.")
+    """Download stock data from Yahoo Finance with error handling."""
+    try:
+        data = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
+        if data.empty:
+            raise ValueError(f"No data found for ticker '{ticker}'. Check the symbol and date range.")
 
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
 
-    data = data.reset_index()
-    data["Date"] = pd.to_datetime(data["Date"])
-    return data
+        data = data.reset_index()
+        data["Date"] = pd.to_datetime(data["Date"])
+        return data
+    except Exception as e:
+        raise ValueError(f"Failed to download data for {ticker}: {str(e)}")
+
+
+def get_stock_info(ticker: str) -> dict | None:
+    """Get company information using yfinance."""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return {
+            "Company": info.get("longName", ticker),
+            "Sector": info.get("sector", "N/A"),
+            "Industry": info.get("industry", "N/A"),
+            "Currency": info.get("currency", "USD"),
+        }
+    except:
+        return None
 
 
 def build_features(data: pd.DataFrame) -> pd.DataFrame:
@@ -65,6 +90,23 @@ def build_features(data: pd.DataFrame) -> pd.DataFrame:
     df["Target_Next_Close"] = df["Price"].shift(-1)
     df = df.replace([np.inf, -np.inf], np.nan).dropna()
     return df
+
+
+def calculate_technical_indicators(predictions: pd.DataFrame) -> pd.DataFrame | None:
+    """Calculate technical indicators for visualization."""
+    try:
+        df = predictions.copy()
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date").sort_index()
+        
+        df["MA_5"] = df["Actual"].rolling(window=5).mean()
+        df["MA_10"] = df["Actual"].rolling(window=10).mean()
+        df["MA_20"] = df["Actual"].rolling(window=20).mean()
+        df["Volatility"] = df["Actual"].pct_change().rolling(window=20).std() * 100
+        
+        return df.reset_index()
+    except:
+        return None
 
 
 def split_time_series(
@@ -95,7 +137,7 @@ def get_models() -> dict[str, object]:
             min_samples_leaf=2,
             n_jobs=-1,
         ),
-        "Gradient Boosting": GradientBoostingRegressor(random_state=42),
+        "Gradient Boosting": GradientBoostingRegressor(random_state=42, n_estimators=200),
     }
 
 
@@ -122,7 +164,17 @@ def plot_predictions(predictions: pd.DataFrame, output_path: Path) -> None:
     plt.close()
 
 
+# Add Streamlit caching if available
+if STREAMLIT_AVAILABLE:
+    train_and_predict_base = st.cache_data(ttl=3600)  # Cache for 1 hour
+else:
+    def train_and_predict_base(func):
+        return func
+
+
+@train_and_predict_base
 def train_and_predict(ticker: str, start: str, end: str | None = None, output_dir: Path = OUTPUT_DIR) -> TrainResult:
+    """Train ML models and generate predictions with caching."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     raw_data = download_stock_data(ticker=ticker, start=start, end=end)
